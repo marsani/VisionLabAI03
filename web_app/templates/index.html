@@ -1,0 +1,956 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Visual Studio Segmentasi Citra Digital - Praktikum 05</title>
+    <meta name="description" content="Aplikasi interaktif terpadu untuk pembelajaran segmentasi citra digital: Thresholding, Region Growing, Pemisahan Latar Belakang HSV & GrabCut, serta Deteksi Objek.">
+    <!-- Google Fonts Inter & JetBrains Mono -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/style.css?v=3">
+</head>
+<body class="light-theme">
+    <header class="app-header">
+        <div class="header-container">
+            <div class="logo-group">
+                <div class="logo-icon">CV</div>
+                <div>
+                    <h1 class="app-title">Visual Studio Segmentasi Citra</h1>
+                    <p class="app-subtitle">Praktikum 05: Komputer Visi & NLP — Laboratorium Visi Komputer</p>
+                </div>
+            </div>
+            <div class="header-actions">
+                <span class="badge status-badge" id="systemStatus">Online • Port 5050</span>
+            </div>
+        </div>
+    </header>
+
+    <div class="app-layout">
+        <!-- Sidebar: Image Selector & Global Upload -->
+        <aside class="sidebar" id="sidebarSection">
+            <div class="sidebar-block">
+                <h2 class="sidebar-title">Citra Masukan</h2>
+                <div class="sample-carousel" id="sampleCarousel">
+                    <!-- Populated dynamically via JS -->
+                    <div class="loader-spinner"></div>
+                </div>
+
+                <div class="upload-zone" id="uploadDropZone">
+                    <input type="file" id="fileInput" accept="image/*" class="file-input-hidden">
+                    <label for="fileInput" class="upload-label" id="uploadLabel">
+                        <svg class="upload-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
+                        </svg>
+                        <span>Unggah Citra Sendiri</span>
+                        <small>PNG, JPG, BMP (Max 5MB)</small>
+                    </label>
+                </div>
+            </div>
+
+            <div class="sidebar-block current-image-card">
+                <h3 class="card-title">Citra Aktif Saat Ini</h3>
+                <div class="active-preview-wrapper">
+                    <img id="activeImagePreview" src="" alt="Pratinjau Citra Aktif">
+                </div>
+                <div class="image-meta" id="activeImageMeta">Memuat citra...</div>
+            </div>
+        </aside>
+
+        <!-- Main Workspace: Single Menu with Tab Switching -->
+        <main class="main-workspace" id="mainWorkspace">
+            <!-- Navigation Tabs Bar -->
+            <nav class="tabs-nav" aria-label="Menu Segmentasi">
+                <button class="tab-btn active" id="tabBtnThreshold" data-target="tabThreshold">
+                    <span class="tab-badge">01</span> Thresholding
+                </button>
+                <button class="tab-btn" id="tabBtnRegion" data-target="tabRegion">
+                    <span class="tab-badge">02</span> Region Growing
+                </button>
+                <button class="tab-btn" id="tabBtnColor" data-target="tabColor">
+                    <span class="tab-badge">03</span> Pemisahan Latar
+                </button>
+                <button class="tab-btn" id="tabBtnDetect" data-target="tabDetect">
+                    <span class="tab-badge">04</span> Deteksi Objek
+                </button>
+                <button class="tab-btn" id="tabBtnEdge" data-target="tabEdge">
+                    <span class="tab-badge">05</span> Deteksi Tepi
+                </button>
+                <button class="tab-btn" id="tabBtnCluster" data-target="tabCluster">
+                    <span class="tab-badge">06</span> Clustering (K-Means & FCM)
+                </button>
+            </nav>
+
+            <!-- ================= TAB 1: THRESHOLDING ================= -->
+            <section class="tab-pane active" id="tabThreshold">
+                <div class="panel-grid">
+                    <div class="controls-panel card">
+                        <h2 class="panel-heading">Pengaturan Thresholding</h2>
+                        
+                        <div class="control-group">
+                            <label for="thresholdMethodSelect" class="form-label">Metode Penambangan Ambang</label>
+                            <select id="thresholdMethodSelect" class="form-select">
+                                <option value="otsu" selected>Otsu Binarization (Otomatis)</option>
+                                <option value="binary">Global Binary (T konstan)</option>
+                                <option value="binary_inv">Global Binary Inverted</option>
+                                <option value="trunc">Truncate</option>
+                                <option value="tozero">To-Zero</option>
+                                <option value="adaptive_gaussian">Adaptive Gaussian (Lokal)</option>
+                                <option value="adaptive_mean">Adaptive Mean (Lokal)</option>
+                            </select>
+                        </div>
+
+                        <!-- Slider T (Global) -->
+                        <div class="control-group" id="globalSliderGroup">
+                            <div class="slider-header">
+                                <label for="globalThresholdSlider" class="form-label">Nilai Ambang Global (T)</label>
+                                <span class="slider-val" id="globalThresholdVal">127</span>
+                            </div>
+                            <input type="range" id="globalThresholdSlider" min="0" max="255" value="127" class="form-slider">
+                        </div>
+
+                        <!-- Param Adaptive (Block Size & C) -->
+                        <div class="control-group hidden" id="adaptiveParamsGroup">
+                            <div class="slider-header">
+                                <label for="blockSizeSlider" class="form-label">Ukuran Blok Lingkungan (Odd)</label>
+                                <span class="slider-val" id="blockSizeVal">15</span>
+                            </div>
+                            <input type="range" id="blockSizeSlider" min="3" max="51" step="2" value="15" class="form-slider">
+
+                            <div class="slider-header" style="margin-top: 12px;">
+                                <label for="cConstSlider" class="form-label">Konstanta Subtraksi (C)</label>
+                                <span class="slider-val" id="cConstVal">4</span>
+                            </div>
+                            <input type="range" id="cConstSlider" min="-10" max="25" value="4" class="form-slider">
+                        </div>
+
+                        <div class="control-group toggle-group">
+                            <label class="switch-label">
+                                <input type="checkbox" id="threshBlurToggle" checked>
+                                <span class="switch-slider"></span>
+                                <span class="switch-text">Terapkan Gaussian Blur (Denoise)</span>
+                            </label>
+                        </div>
+
+                        <!-- Histogram Canvas -->
+                        <div class="histogram-wrapper">
+                            <h3 class="sub-heading">Histogram Citra & Ambang Terhitung</h3>
+                            <canvas id="histogramCanvas" width="300" height="120"></canvas>
+                            <div class="hist-legend" id="histLegendText">Otsu T = Menghitung...</div>
+                        </div>
+
+                        <button class="btn btn-primary" id="btnRunThreshold">Terapkan Thresholding</button>
+                    </div>
+
+                    <!-- Viewer Panel -->
+                    <div class="viewer-panel card">
+                        <h2 class="panel-heading">Hasil Visualisasi Segmentasi</h2>
+                        <div class="comparison-grid">
+                            <div class="viewport-box">
+                                <span class="viewport-tag">Citra Masukan</span>
+                                <img id="threshOriginalImg" src="" alt="Citra Asli">
+                            </div>
+                            <div class="viewport-box">
+                                <span class="viewport-tag" id="threshResultTag">Hasil Biner</span>
+                                <img id="threshResultImg" src="" alt="Hasil Thresholding">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ================= TAB 2: REGION GROWING ================= -->
+            <section class="tab-pane" id="tabRegion">
+                <div class="panel-grid">
+                    <div class="controls-panel card">
+                        <h2 class="panel-heading">Parameter Region Growing</h2>
+                        <p class="panel-tip">
+                            <strong>Interaksi:</strong> Klik langsung pada kanvas di sebelah kanan untuk memilih <em>Seed Point</em> (titik awal) pemekaran wilayah!
+                        </p>
+
+                        <div class="info-stat-card">
+                            <div class="stat-item">
+                                <span class="stat-label">Koordinat Seed</span>
+                                <span class="stat-value" id="seedCoordText">(120, 120)</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">Intensitas Seed</span>
+                                <span class="stat-value" id="seedIntensityText">-</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">Piksel Wilayah</span>
+                                <span class="stat-value" id="regionPixelCountText">-</span>
+                            </div>
+                        </div>
+
+                        <div class="control-group">
+                            <div class="slider-header">
+                                <label for="regionThresholdSlider" class="form-label">Toleransi Perbedaan (Threshold ΔI)</label>
+                                <span class="slider-val" id="regionThresholdVal">15</span>
+                            </div>
+                            <input type="range" id="regionThresholdSlider" min="1" max="100" value="15" class="form-slider">
+                            <small class="helper-text">Nilai kecil: selektif | Nilai besar: berpotensi bocor (leaking)</small>
+                        </div>
+
+                        <div class="control-group">
+                            <label class="form-label">Konektivitas Ketetanggaan</label>
+                            <div class="radio-pill-group">
+                                <label class="radio-pill">
+                                    <input type="radio" name="connectivity" value="4">
+                                    <span>4-Tetangga</span>
+                                </label>
+                                <label class="radio-pill">
+                                    <input type="radio" name="connectivity" value="8" checked>
+                                    <span>8-Tetangga</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="control-group toggle-group">
+                            <label class="switch-label">
+                                <input type="checkbox" id="dynamicMeanToggle" checked>
+                                <span class="switch-slider"></span>
+                                <span class="switch-text">Perbarui Rata-rata Dinamis (&mu; Region)</span>
+                            </label>
+                        </div>
+
+                        <button class="btn btn-primary" id="btnRunRegionGrowing">Segarkan Region Growing</button>
+                    </div>
+
+                    <!-- Viewer Panel with Clickable Canvas -->
+                    <div class="viewer-panel card">
+                        <div class="viewer-header">
+                            <h2 class="panel-heading">Kanvas Interaktif & Pratinjau Overlay</h2>
+                            <span class="badge info-badge">Klik kanvas untuk ubah Seed</span>
+                        </div>
+                        <div class="canvas-viewport-container">
+                            <div class="interactive-canvas-box">
+                                <span class="viewport-tag">Klik Kanvas (Seed Picker)</span>
+                                <canvas id="regionInteractiveCanvas"></canvas>
+                            </div>
+                            <div class="interactive-canvas-box">
+                                <span class="viewport-tag">Mask Biner Region</span>
+                                <img id="regionMaskImg" src="" alt="Mask Biner Region">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ================= TAB 3: PEMISAHAN OBJEK (HSV & GRABCUT) ================= -->
+            <section class="tab-pane" id="tabColor">
+                <div class="panel-grid">
+                    <div class="controls-panel card">
+                        <h2 class="panel-heading">Pemisahan Warna & Latar Belakang</h2>
+
+                        <!-- Mode Switcher: HSV vs GrabCut -->
+                        <div class="sub-tab-group">
+                            <button class="sub-tab-btn active" id="subTabHsvBtn">Segmentasi Warna (HSV)</button>
+                            <button class="sub-tab-btn" id="subTabGrabCutBtn">Algoritma GrabCut</button>
+                        </div>
+
+                        <!-- Sub-Pane HSV -->
+                        <div id="hsvControlsGroup">
+                            <div class="preset-group">
+                                <span class="preset-label">Preset Cepat:</span>
+                                <button class="btn-chip" data-preset="red">Apel Merah</button>
+                                <button class="btn-chip" data-preset="yellow">Jeruk Kuning</button>
+                                <button class="btn-chip" data-preset="green">Daun/Alpukat Hijau</button>
+                            </div>
+
+                            <div class="slider-quad">
+                                <div class="slider-item">
+                                    <label class="form-label-sm">Hue Min: <span id="hMinVal">0</span></label>
+                                    <input type="range" id="hMinSlider" min="0" max="180" value="0" class="form-slider">
+                                </div>
+                                <div class="slider-item">
+                                    <label class="form-label-sm">Hue Max: <span id="hMaxVal">10</span></label>
+                                    <input type="range" id="hMaxSlider" min="0" max="180" value="10" class="form-slider">
+                                </div>
+                                <div class="slider-item">
+                                    <label class="form-label-sm">Sat Min: <span id="sMinVal">100</span></label>
+                                    <input type="range" id="sMinSlider" min="0" max="255" value="100" class="form-slider">
+                                </div>
+                                <div class="slider-item">
+                                    <label class="form-label-sm">Val Min: <span id="vMinVal">100</span></label>
+                                    <input type="range" id="vMinSlider" min="0" max="255" value="100" class="form-slider">
+                                </div>
+                            </div>
+
+                            <div class="control-group toggle-group" style="margin-top: 10px;">
+                                <label class="switch-label">
+                                    <input type="checkbox" id="wrapRedToggle" checked>
+                                    <span class="switch-slider"></span>
+                                    <span class="switch-text">Bungkus Rentang Merah (0-10 & 160-180)</span>
+                                </label>
+                            </div>
+
+                            <h3 class="sub-heading" style="margin-top: 16px;">Pembersihan Morfologi</h3>
+                            <div class="morph-controls">
+                                <label class="checkbox-pill">
+                                    <input type="checkbox" id="morphOpenCheck" checked>
+                                    <span>Opening (Hapus Bintik)</span>
+                                </label>
+                                <label class="checkbox-pill">
+                                    <input type="checkbox" id="morphCloseCheck" checked>
+                                    <span>Closing (Tutup Lubang)</span>
+                                </label>
+                            </div>
+
+                            <button class="btn btn-primary" id="btnRunHsv" style="margin-top: 14px;">Terapkan Segmentasi HSV</button>
+                        </div>
+
+                        <!-- Sub-Pane GrabCut -->
+                        <div id="grabcutControlsGroup" class="hidden">
+                            <p class="panel-tip">
+                                GrabCut memodelkan objek latar depan menggunakan GMM & Graph Cuts berdasarkan Bounding Box ROI.
+                            </p>
+                            <div class="roi-inputs">
+                                <div class="roi-field">
+                                    <label>X Awal</label>
+                                    <input type="number" id="gcX" value="65" class="form-input">
+                                </div>
+                                <div class="roi-field">
+                                    <label>Y Awal</label>
+                                    <input type="number" id="gcY" value="100" class="form-input">
+                                </div>
+                                <div class="roi-field">
+                                    <label>Lebar (W)</label>
+                                    <input type="number" id="gcW" value="170" class="form-input">
+                                </div>
+                                <div class="roi-field">
+                                    <label>Tinggi (H)</label>
+                                    <input type="number" id="gcH" value="220" class="form-input">
+                                </div>
+                            </div>
+                            <div class="control-group" style="margin-top: 14px;">
+                                <label class="form-label">Iterasi GrabCut: <span id="gcIterVal">5</span></label>
+                                <input type="range" id="gcIterSlider" min="1" max="10" value="5" class="form-slider">
+                            </div>
+                            <button class="btn btn-primary" id="btnRunGrabcut" style="margin-top: 14px;">Jalankan Algoritma GrabCut</button>
+                        </div>
+                    </div>
+
+                    <!-- Viewer Panel -->
+                    <div class="viewer-panel card">
+                        <h2 class="panel-heading">Hasil Isolasi Objek & Latar Belakang</h2>
+                        <div class="comparison-grid">
+                            <div class="viewport-box">
+                                <span class="viewport-tag">Mask Biner Pemisahan</span>
+                                <img id="colorMaskImg" src="" alt="Mask Biner">
+                            </div>
+                            <div class="viewport-box">
+                                <span class="viewport-tag">Objek Terekstraksi (Latar Bersih)</span>
+                                <img id="colorExtractedImg" src="" alt="Objek Terekstraksi">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ================= TAB 4: DETEKSI & ANALISIS OBJEK ================= -->
+            <section class="tab-pane" id="tabDetect">
+                <div class="panel-grid">
+                    <div class="controls-panel card">
+                        <h2 class="panel-heading">Pipeline Deteksi Objek</h2>
+                        
+                        <div class="control-group">
+                            <div class="slider-header">
+                                <label for="minAreaSlider" class="form-label">Filter Luas Minimum (Pixel Area)</label>
+                                <span class="slider-val" id="minAreaVal">500 px</span>
+                            </div>
+                            <input type="range" id="minAreaSlider" min="50" max="3000" step="50" value="500" class="form-slider">
+                            <small class="helper-text">Mengabaikan serpihan dan derau kecil di bawah luas ini.</small>
+                        </div>
+
+                        <div class="control-group">
+                            <div class="slider-header">
+                                <label for="blurKsizeSlider" class="form-label">Gaussian Blur Kernel (Odd)</label>
+                                <span class="slider-val" id="blurKsizeVal">7</span>
+                            </div>
+                            <input type="range" id="blurKsizeSlider" min="1" max="21" step="2" value="7" class="form-slider">
+                        </div>
+
+                        <div class="control-group">
+                            <label class="form-label">Metode Segmentasi Biner</label>
+                            <div class="radio-pill-group">
+                                <label class="radio-pill">
+                                    <input type="radio" name="detectMethod" value="otsu" checked>
+                                    <span>Otsu Binarization</span>
+                                </label>
+                                <label class="radio-pill">
+                                    <input type="radio" name="detectMethod" value="adaptive">
+                                    <span>Adaptive Gaussian</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="detection-counter-card">
+                            <span class="counter-label">Total Objek Terdeteksi</span>
+                            <span class="counter-number" id="totalObjectsCount">0</span>
+                        </div>
+
+                        <button class="btn btn-primary" id="btnRunDetection">Jalankan Deteksi Objek</button>
+                    </div>
+
+                    <!-- Viewer & Table Panel -->
+                    <div class="viewer-panel card">
+                        <h2 class="panel-heading">Deteksi Bounding Box, Centroid, & Anotasi</h2>
+                        <div class="comparison-grid">
+                            <div class="viewport-box">
+                                <span class="viewport-tag">Citra Teranotasi (Box, Centroid, Kontur)</span>
+                                <img id="detectAnnotatedImg" src="" alt="Citra Teranotasi">
+                            </div>
+                            <div class="viewport-box">
+                                <span class="viewport-tag">Mask Biner Tersegmentasi</span>
+                                <img id="detectMaskImg" src="" alt="Mask Biner Deteksi">
+                            </div>
+                        </div>
+
+                        <!-- Data Table of Detected Objects -->
+                        <div class="table-container">
+                            <h3 class="sub-heading">Tabel Morfometri & Karakteristik Objek</h3>
+                            <div class="table-scroll">
+                                <table class="data-table" id="objectsDataTable">
+                                    <thead>
+                                        <tr>
+                                            <th>ID</th>
+                                            <th>Pusat (Cx, Cy)</th>
+                                            <th>Luas (Area)</th>
+                                            <th>Keliling</th>
+                                            <th>Kebundaran (Circularity)</th>
+                                            <th>Bounding Box (x,y,w,h)</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="objectsTableBody">
+                                        <tr><td colspan="6" class="text-center">Belum ada objek dianalisis</td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ================= TAB 5: DETEKSI TEPI ================= -->
+            <section class="tab-pane" id="tabEdge">
+                <div class="panel-grid">
+                    <!-- Controls Panel -->
+                    <div class="controls-panel card">
+                        <h2 class="panel-heading">Pengaturan Deteksi Tepi</h2>
+
+                        <!-- Mode Switcher -->
+                        <div class="control-group">
+                            <label class="form-label">Tampilan Studio</label>
+                            <div class="sub-tab-group">
+                                <button class="sub-tab-btn active" id="subTabEdgeCompare">Bandingkan 4 Metode</button>
+                                <button class="sub-tab-btn" id="subTabEdgeSingle">Eksplorasi Detail</button>
+                            </div>
+                        </div>
+
+                        <!-- Single Method Select (hanya aktif di mode eksplorasi detail) -->
+                        <div class="control-group" id="edgeSingleMethodGroup" style="display: none;">
+                            <label for="edgeMethodSelect" class="form-label">Pilih Metode Deteksi</label>
+                            <select id="edgeMethodSelect" class="form-select">
+                                <option value="canny" selected>Canny Edge Detector</option>
+                                <option value="sobel">Sobel Operator</option>
+                                <option value="prewitt">Prewitt Operator</option>
+                                <option value="roberts">Roberts Cross Operator</option>
+                            </select>
+                        </div>
+
+                        <!-- Canny Thresholds -->
+                        <div class="control-group" id="cannyControlsGroup">
+                            <div class="slider-header">
+                                <label for="cannyTh1Slider" class="form-label">Canny Low Threshold (T1)</label>
+                                <span class="slider-val" id="cannyTh1Val">100</span>
+                            </div>
+                            <input type="range" id="cannyTh1Slider" min="5" max="250" step="5" value="100" class="form-slider">
+                            
+                            <div class="slider-header mt-2">
+                                <label for="cannyTh2Slider" class="form-label">Canny High Threshold (T2)</label>
+                                <span class="slider-val" id="cannyTh2Val">200</span>
+                            </div>
+                            <input type="range" id="cannyTh2Slider" min="10" max="300" step="5" value="200" class="form-slider">
+                            <small class="helper-text">Rasio histeresis T2 : T1 yang ideal berkisar 2:1 hingga 3:1.</small>
+                        </div>
+
+                        <!-- Sobel Kernel Size -->
+                        <div class="control-group" id="sobelControlsGroup">
+                            <label for="sobelKsizeSelect" class="form-label">Ukuran Kernel Sobel</label>
+                            <select id="sobelKsizeSelect" class="form-select">
+                                <option value="1">1 (Aproksimasi Cepat)</option>
+                                <option value="3" selected>3 x 3 (Standar)</option>
+                                <option value="5">5 x 5 (Lebih Halus)</option>
+                                <option value="7">7 x 7 (Tahan Derau Ekstrem)</option>
+                            </select>
+                        </div>
+
+                        <!-- Binary Edge Thresholding Slider -->
+                        <div class="control-group">
+                            <div class="slider-header">
+                                <label for="edgeBinaryThSlider" class="form-label">Ambang Biner Magnitudo (Opsional)</label>
+                                <span class="slider-val" id="edgeBinaryThVal">0 (Gradien Murni)</span>
+                            </div>
+                            <input type="range" id="edgeBinaryThSlider" min="0" max="200" step="5" value="0" class="form-slider">
+                            <small class="helper-text">0 = magnitudo intensitas kontinu; > 0 = garis tepi biner tegas.</small>
+                        </div>
+
+                        <!-- Pre-filter Gaussian Blur -->
+                        <div class="control-group">
+                            <div class="toggle-group">
+                                <label class="switch">
+                                    <input type="checkbox" id="edgeBlurToggle">
+                                    <span class="slider-round"></span>
+                                </label>
+                                <span class="toggle-label">Reduksi Derau Awal (Gaussian Blur)</span>
+                            </div>
+                            <div id="edgeBlurKsizeWrapper" style="display: none; margin-top: 10px;">
+                                <div class="slider-header">
+                                    <label for="edgeBlurKsizeSlider" class="form-label">Ukuran Kernel Blur</label>
+                                    <span class="slider-val" id="edgeBlurKsizeVal">3</span>
+                                </div>
+                                <input type="range" id="edgeBlurKsizeSlider" min="3" max="15" step="2" value="3" class="form-slider">
+                            </div>
+                        </div>
+
+                        <!-- Visual Edge Overlay Mode -->
+                        <div class="control-group">
+                            <label class="form-label">Mode Visualisasi Tepi</label>
+                            <div class="radio-pill-group">
+                                <label class="radio-pill">
+                                    <input type="radio" name="edgeViewMode" value="grayscale" checked>
+                                    <span>Peta Tepi Hitam-Putih</span>
+                                </label>
+                                <label class="radio-pill">
+                                    <input type="radio" name="edgeViewMode" value="overlay">
+                                    <span>Color Overlay Citra Asli</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- Quick Benchmark Stat -->
+                        <div class="detection-counter-card">
+                            <span class="counter-label">Metode Tercepat</span>
+                            <span class="counter-number" id="fastestMethodBadge" style="font-size: 1.25rem;">Roberts Cross</span>
+                            <small class="text-muted" id="fastestMethodSub">Komputasi matriks diagonal 2x2</small>
+                        </div>
+
+                        <button class="btn btn-primary" id="btnRunEdgeDetection">Jalankan Deteksi Tepi</button>
+                    </div>
+
+                    <!-- Viewer Panel -->
+                    <div class="viewer-panel card">
+                        <!-- Mode 1: 4-Way Comparison Grid -->
+                        <div id="edgeCompareView">
+                            <div class="section-title-bar">
+                                <h2 class="panel-heading" style="margin-bottom:0;">Perbandingan 4 Metode Deteksi Tepi</h2>
+                                <span class="badge" id="edgeStatusBadge">Siap Dieksekusi</span>
+                            </div>
+                            <p class="panel-desc">Visualisasi komparasi Canny, Sobel, Prewitt, dan Roberts secara simultan pada citra masukan aktif.</p>
+
+                            <!-- 4 Grid Display + Citra Asli Mini Bar -->
+                            <div class="edge-comparison-grid">
+                                <!-- Card Canny -->
+                                <div class="edge-card" id="cardCanny">
+                                    <div class="edge-card-header">
+                                        <div class="edge-method-title">
+                                            <span class="method-tag method-tag-canny">Canny</span>
+                                            <span class="edge-time-badge" id="timeBadgeCanny">- ms</span>
+                                        </div>
+                                        <span class="edge-density-text" id="densityCanny">- px</span>
+                                    </div>
+                                    <div class="edge-img-wrap">
+                                        <img id="imgEdgeCanny" src="" alt="Hasil Canny Edge">
+                                    </div>
+                                    <div class="edge-card-footer">
+                                        <span class="feature-badge">Paling Halus & Kontinu</span>
+                                    </div>
+                                </div>
+
+                                <!-- Card Sobel -->
+                                <div class="edge-card" id="cardSobel">
+                                    <div class="edge-card-header">
+                                        <div class="edge-method-title">
+                                            <span class="method-tag method-tag-sobel">Sobel</span>
+                                            <span class="edge-time-badge" id="timeBadgeSobel">- ms</span>
+                                        </div>
+                                        <span class="edge-density-text" id="densitySobel">- px</span>
+                                    </div>
+                                    <div class="edge-img-wrap">
+                                        <img id="imgEdgeSobel" src="" alt="Hasil Sobel Edge">
+                                    </div>
+                                    <div class="edge-card-footer">
+                                        <span class="feature-badge">Tebal & Diagonal Jelas</span>
+                                    </div>
+                                </div>
+
+                                <!-- Card Prewitt -->
+                                <div class="edge-card" id="cardPrewitt">
+                                    <div class="edge-card-header">
+                                        <div class="edge-method-title">
+                                            <span class="method-tag method-tag-prewitt">Prewitt</span>
+                                            <span class="edge-time-badge" id="timeBadgePrewitt">- ms</span>
+                                        </div>
+                                        <span class="edge-density-text" id="densityPrewitt">- px</span>
+                                    </div>
+                                    <div class="edge-img-wrap">
+                                        <img id="imgEdgePrewitt" src="" alt="Hasil Prewitt Edge">
+                                    </div>
+                                    <div class="edge-card-footer">
+                                        <span class="feature-badge">Sederhana Horiz/Vertikal</span>
+                                    </div>
+                                </div>
+
+                                <!-- Card Roberts -->
+                                <div class="edge-card" id="cardRoberts">
+                                    <div class="edge-card-header">
+                                        <div class="edge-method-title">
+                                            <span class="method-tag method-tag-roberts">Roberts</span>
+                                            <span class="edge-time-badge" id="timeBadgeRoberts">- ms</span>
+                                        </div>
+                                        <span class="edge-density-text" id="densityRoberts">- px</span>
+                                    </div>
+                                    <div class="edge-img-wrap">
+                                        <img id="imgEdgeRoberts" src="" alt="Hasil Roberts Edge">
+                                    </div>
+                                    <div class="edge-card-footer">
+                                        <span class="feature-badge">Paling Cepat (2x2)</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Comprehensive Comparison Table -->
+                            <div class="table-container mt-4">
+                                <h3 class="sub-heading">Tabel Perbandingan Metode Deteksi Tepi</h3>
+                                <div class="table-scroll">
+                                    <table class="data-table" id="edgeSummaryTable">
+                                        <thead>
+                                            <tr>
+                                                <th style="width: 14%;">Metode</th>
+                                                <th style="width: 36%;">Karakteristik Hasil Gambar</th>
+                                                <th style="width: 30%;">Kelebihan / Kekurangan</th>
+                                                <th style="width: 10%;">Waktu Komputasi</th>
+                                                <th style="width: 10%;">Piksel Tepi</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="edgeSummaryTableBody">
+                                            <tr id="rowCanny">
+                                                <td><strong class="text-primary">Canny</strong></td>
+                                                <td>Menghasilkan garis tepi yang paling halus, tipis, kontinu (menyambung), dan bersih dari derau (noise).</td>
+                                                <td>Terbaik untuk deteksi objek presisi, tetapi proses komputasinya lebih rumit.</td>
+                                                <td><span class="badge" id="tableTimeCanny">-</span></td>
+                                                <td><span id="tablePixelsCanny">-</span></td>
+                                            </tr>
+                                            <tr id="rowSobel">
+                                                <td><strong class="text-secondary">Sobel</strong></td>
+                                                <td>Garis tepi yang dihasilkan cukup jelas dan tebal, terutama pada sudut diagonal.</td>
+                                                <td>Bagus untuk mendeteksi pola bentuk dasar objek, namun sensitif terhadap gangguan noise.</td>
+                                                <td><span class="badge" id="tableTimeSobel">-</span></td>
+                                                <td><span id="tablePixelsSobel">-</span></td>
+                                            </tr>
+                                            <tr id="rowPrewitt">
+                                                <td><strong class="text-pink">Prewitt</strong></td>
+                                                <td>Mirip dengan Sobel, tetapi garis tepi yang dihasilkan cenderung sedikit lebih kaku dan kurang tajam dibanding Sobel.</td>
+                                                <td>Sangat mudah diimplementasikan untuk mendeteksi tepi vertikal dan horizontal.</td>
+                                                <td><span class="badge" id="tableTimePrewitt">-</span></td>
+                                                <td><span id="tablePixelsPrewitt">-</span></td>
+                                            </tr>
+                                            <tr id="rowRoberts">
+                                                <td><strong class="text-warning">Roberts</strong></td>
+                                                <td>Menghasilkan garis tepi yang sangat sederhana dan hanya mendeteksi perubahan intensitas yang sangat tajam.</td>
+                                                <td>Proses komputasinya paling cepat, tetapi hasilnya sering kali kurang detail atau putus-putus.</td>
+                                                <td><span class="badge" id="tableTimeRoberts">-</span></td>
+                                                <td><span id="tablePixelsRoberts">-</span></td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Mode 2: Single Method Detailed Exploration (Directional components Gx, Gy) -->
+                        <div id="edgeSingleView" style="display: none;">
+                            <div class="section-title-bar">
+                                <h2 class="panel-heading" id="singleMethodHeading" style="margin-bottom:0;">Eksplorasi Deteksi Tepi Mendalam</h2>
+                                <span class="badge" id="singleTimeBadge">- ms</span>
+                            </div>
+
+                            <div class="single-edge-meta-card mb-3" id="singleMetaCard">
+                                <p id="singleCharacteristicsText">Pilih metode dan tekan tombol eksekusi.</p>
+                                <small class="text-muted" id="singleProsConsText"></small>
+                            </div>
+
+                            <div class="comparison-grid">
+                                <div class="viewport-box">
+                                    <span class="viewport-tag">Peta Tepi / Magnitudo Gradient</span>
+                                    <img id="singleEdgeImg" src="" alt="Peta Tepi">
+                                </div>
+                                <div class="viewport-box">
+                                    <span class="viewport-tag">Color Overlay Pada Citra Asli</span>
+                                    <img id="singleOverlayImg" src="" alt="Color Overlay">
+                                </div>
+                            </div>
+
+                            <!-- Gradient Directional Components -->
+                            <div class="directional-components-block mt-3" id="directionalComponentsBlock">
+                                <h3 class="sub-heading">Komponen Gradien Arah (Horizontal Gx & Vertikal Gy)</h3>
+                                <div class="comparison-grid">
+                                    <div class="viewport-box">
+                                        <span class="viewport-tag">Gradien Komponen X (|Gx| - Tepi Vertikal)</span>
+                                        <img id="compXImg" src="" alt="Gradien X">
+                                    </div>
+                                    <div class="viewport-box">
+                                        <span class="viewport-tag">Gradien Komponen Y (|Gy| - Tepi Horizontal)</span>
+                                        <img id="compYImg" src="" alt="Gradien Y">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ================= TAB 6: CLUSTERING (K-MEANS & FCM) ================= -->
+            <section class="tab-pane" id="tabCluster">
+                <div class="panel-grid">
+                    <!-- Controls Panel -->
+                    <div class="controls-panel card">
+                        <h2 class="panel-heading">Pengaturan Segmentasi Clustering</h2>
+
+                        <!-- Mode Switcher -->
+                        <div class="control-group">
+                            <label class="form-label">Tampilan Studio</label>
+                            <div class="sub-tab-group">
+                                <button class="sub-tab-btn active" id="subTabClusterCompare">Bandingkan K-Means vs FCM</button>
+                                <button class="sub-tab-btn" id="subTabClusterSingle">Eksplorasi Detail</button>
+                            </div>
+                        </div>
+
+                        <!-- Method Select (Single Mode) -->
+                        <div class="control-group" id="clusterMethodSelectGroup" style="display: none;">
+                            <label for="clusterMethodSelect" class="form-label">Pilih Algoritma Clustering</label>
+                            <select id="clusterMethodSelect" class="form-select">
+                                <option value="kmeans" selected>K-Means (Hard Clustering)</option>
+                                <option value="fcm">Fuzzy C-Means / FCM (Soft Clustering)</option>
+                            </select>
+                        </div>
+
+                        <!-- Jumlah Cluster K / C -->
+                        <div class="control-group">
+                            <div class="slider-header">
+                                <label for="clusterKSlider" class="form-label">Jumlah Kluster (K / C)</label>
+                                <span class="slider-val" id="clusterKVal">4 Kluster</span>
+                            </div>
+                            <input type="range" id="clusterKSlider" min="2" max="8" step="1" value="4" class="form-slider">
+                            <small class="helper-text">Mengelompokkan piksel menjadi K kelompok warna/fitur homogen.</small>
+                        </div>
+
+                        <!-- Fuzzifier m (FCM) -->
+                        <div class="control-group" id="fcmMControlGroup">
+                            <div class="slider-header">
+                                <label for="fcmMSlider" class="form-label">Parameter Fuzziness (m)</label>
+                                <span class="slider-val" id="fcmMVal">2.0</span>
+                            </div>
+                            <input type="range" id="fcmMSlider" min="1.1" max="3.0" step="0.1" value="2.0" class="form-slider">
+                            <small class="helper-text">Khusus FCM: Semakin besar m, derajat keanggotaan semakin kabur/lembut.</small>
+                        </div>
+
+                        <!-- Max Iterations -->
+                        <div class="control-group">
+                            <div class="slider-header">
+                                <label for="clusterIterSlider" class="form-label">Maksimal Iterasi Konvergensi</label>
+                                <span class="slider-val" id="clusterIterVal">20 iterasi</span>
+                            </div>
+                            <input type="range" id="clusterIterSlider" min="5" max="50" step="5" value="20" class="form-slider">
+                        </div>
+
+                        <!-- Color Space Select -->
+                        <div class="control-group">
+                            <label for="clusterColorSpaceSelect" class="form-label">Ruang Warna Vektor Fitur</label>
+                            <select id="clusterColorSpaceSelect" class="form-select">
+                                <option value="bgr" selected>RGB / BGR (Warna Asli)</option>
+                                <option value="lab">CIELAB (Perceptual Uniformity)</option>
+                                <option value="hsv">HSV (Hue, Saturation, Value)</option>
+                                <option value="gray">Grayscale (Intensitas Saja)</option>
+                            </select>
+                        </div>
+
+                        <!-- Extract Specific Cluster -->
+                        <div class="control-group" id="clusterExtractGroup" style="display: none;">
+                            <label for="clusterExtractSelect" class="form-label">Isolasi Kluster Objek Spesifik</label>
+                            <select id="clusterExtractSelect" class="form-select">
+                                <option value="-1" selected>Tampilkan Semua Kluster</option>
+                                <option value="0">Kluster #1 Saja</option>
+                                <option value="1">Kluster #2 Saja</option>
+                                <option value="2">Kluster #3 Saja</option>
+                                <option value="3">Kluster #4 Saja</option>
+                            </select>
+                        </div>
+
+                        <button class="btn btn-primary" id="btnRunClustering">Jalankan Segmentasi Clustering</button>
+                    </div>
+
+                    <!-- Viewer Panel -->
+                    <div class="viewer-panel card">
+                        <!-- Mode 1: Compare Both K-Means vs FCM -->
+                        <div id="clusterCompareView">
+                            <div class="section-title-bar">
+                                <h2 class="panel-heading" style="margin-bottom:0;">Perbandingan K-Means vs Fuzzy C-Means (FCM)</h2>
+                                <span class="badge" id="clusterStatusBadge">Siap Dieksekusi</span>
+                            </div>
+                            <p class="panel-desc"><em>"Clustering: Mengelompokkan piksel berdasarkan kedekatan nilai fitur, seperti algoritma K-Means atau Fuzzy C-Means."</em></p>
+
+                            <div class="edge-comparison-grid" style="grid-template-columns: repeat(2, 1fr);">
+                                <!-- Card K-Means -->
+                                <div class="edge-card" id="cardKMeans">
+                                    <div class="edge-card-header">
+                                        <div class="edge-method-title">
+                                            <span class="method-tag method-tag-canny">K-Means</span>
+                                            <span class="edge-time-badge" id="timeBadgeKMeans">- ms</span>
+                                        </div>
+                                        <span class="edge-density-text">Hard Clustering</span>
+                                    </div>
+                                    <div class="edge-img-wrap" style="background:#1e293b; min-height:220px;">
+                                        <img id="imgClusterKMeans" src="" alt="Hasil K-Means">
+                                    </div>
+                                    <div class="palette-bar" id="kmPaletteBar"></div>
+                                    <div class="edge-card-footer">
+                                        <span class="feature-badge">Partisi Tegas & Cepat (Min Euclidean)</span>
+                                    </div>
+                                </div>
+
+                                <!-- Card FCM -->
+                                <div class="edge-card" id="cardFCM">
+                                    <div class="edge-card-header">
+                                        <div class="edge-method-title">
+                                            <span class="method-tag method-tag-sobel">Fuzzy C-Means</span>
+                                            <span class="edge-time-badge" id="timeBadgeFCM">- ms</span>
+                                        </div>
+                                        <span class="edge-density-text">Soft Clustering</span>
+                                    </div>
+                                    <div class="edge-img-wrap" style="background:#1e293b; min-height:220px;">
+                                        <img id="imgClusterFCM" src="" alt="Hasil FCM">
+                                    </div>
+                                    <div class="palette-bar" id="fcmPaletteBar"></div>
+                                    <div class="edge-card-footer">
+                                        <span class="feature-badge">Derajat Keanggotaan Kontinu u_ij ∈ [0, 1]</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- FCM Uncertainty / Boundary Transition Map -->
+                            <div class="mt-4">
+                                <h3 class="sub-heading">Peta Ketidakpastian Batas Piksel (FCM Boundary Uncertainty Heatmap)</h3>
+                                <div class="viewport-box">
+                                    <span class="viewport-tag">Derajat Ambiguitas Transisi Batas Antar-Wilayah (Warna Dingin = Pasti, Warna Panas = Ambiguitas)</span>
+                                    <img id="fcmUncertaintyImg" src="" alt="Heatmap Ambiguitas FCM" style="max-height: 260px; object-fit: contain;">
+                                </div>
+                            </div>
+
+                            <!-- Comparison Table -->
+                            <div class="table-container mt-4">
+                                <h3 class="sub-heading">Tabel Perbandingan Konseptual K-Means vs Fuzzy C-Means</h3>
+                                <div class="table-scroll">
+                                    <table class="data-table">
+                                        <thead>
+                                            <tr>
+                                                <th style="width: 18%;">Aspek Komparasi</th>
+                                                <th style="width: 41%;">K-Means Clustering</th>
+                                                <th style="width: 41%;">Fuzzy C-Means (FCM)</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr>
+                                                <td><strong>Tipe Partisi</strong></td>
+                                                <td><span class="badge status-badge">Crisp / Hard Clustering</span></td>
+                                                <td><span class="badge info-badge">Soft / Fuzzy Clustering</span></td>
+                                            </tr>
+                                            <tr>
+                                                <td><strong>Derajat Keanggotaan</strong></td>
+                                                <td>Biner: $u_{ij} \in \{0, 1\}$. Tiap piksel mutlak milik 1 kelompok.</td>
+                                                <td>Kontinu: $u_{ij} \in [0, 1]$ dengan $\sum_{j=1}^C u_{ij} = 1$.</td>
+                                            </tr>
+                                            <tr>
+                                                <td><strong>Sensitivitas Batas Objek</strong></td>
+                                                <td>Batas antar-wilayah tegas/kaku, rentan terhadap noise piksel tepi.</td>
+                                                <td>Mampu menangani batas objek kabur, gradasi warna, dan piksel campuran.</td>
+                                            </tr>
+                                            <tr>
+                                                <td><strong>Kompleksitas Komputasi</strong></td>
+                                                <td>Sangat cepat (optimasi vektor Euclidean terdekat).</td>
+                                                <td>Lebih komputatif (pembaruan matriks keanggotaan eksponensial $m$).</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Mode 2: Single Detail Exploration -->
+                        <div id="clusterSingleView" style="display: none;">
+                            <div class="section-title-bar">
+                                <h2 class="panel-heading" id="clusterSingleHeading" style="margin-bottom:0;">Eksplorasi Detail Clustering</h2>
+                                <span class="badge" id="clusterSingleTimeBadge">- ms</span>
+                            </div>
+
+                            <div class="single-edge-meta-card mb-3" id="clusterMetaCard">
+                                <p id="clusterCharacteristicsText">Pilih metode dan tekan tombol eksekusi.</p>
+                                <small class="text-muted" id="clusterProsConsText"></small>
+                            </div>
+
+                            <div class="comparison-grid">
+                                <div class="viewport-box">
+                                    <span class="viewport-tag">Citra Asli</span>
+                                    <img id="clusterSingleOrigImg" src="" alt="Citra Asli">
+                                </div>
+                                <div class="viewport-box">
+                                    <span class="viewport-tag">Citra Hasil Segmentasi Kuantisasi Warna</span>
+                                    <img id="clusterSingleSegImg" src="" alt="Hasil Segmentasi">
+                                </div>
+                            </div>
+
+                            <!-- Extracted Single Cluster / Uncertainty Block -->
+                            <div class="mt-3" id="clusterExtractedBlock" style="display: none;">
+                                <h3 class="sub-heading">Hasil Isolasi Kluster Terpilih</h3>
+                                <div class="viewport-box">
+                                    <span class="viewport-tag">Piksel Objek Hanya pada Kluster Terpilih</span>
+                                    <img id="clusterExtractedImg" src="" alt="Kluster Terisolasi">
+                                </div>
+                            </div>
+
+                            <!-- Swatches Palette List -->
+                            <div class="table-container mt-4">
+                                <h3 class="sub-heading">Palet Warna Pusat Kluster & Distribusi Piksel</h3>
+                                <div class="table-scroll">
+                                    <table class="data-table" id="clusterPaletteTable">
+                                        <thead>
+                                            <tr>
+                                                <th>Kluster</th>
+                                                <th>Warna Representatif</th>
+                                                <th>Kode Warna (Hex / RGB)</th>
+                                                <th>Jumlah Piksel</th>
+                                                <th>Persentase Luas (%)</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="clusterPaletteTableBody">
+                                            <tr><td colspan="5" class="text-center">Jalankan clustering untuk melihat palet</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <footer class="app-footer">
+        <p>Praktikum 05: Komputer Visi dan NLP © 2025/2026 — Universitas / Laboratorium Visi Komputer</p>
+    </footer>
+
+    <script src="/static/js/main.js?v=3"></script>
+</body>
+</html>
